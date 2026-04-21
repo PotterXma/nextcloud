@@ -705,13 +705,6 @@ docker exec nextcloud_app chown -R www-data:www-data /var/www/html/data
 
 | 优先级 | 项 | 说明 |
 |--------|-----|------|
-| 高 | 轮换 `rundecksvc` 密码 | 当前密码 `setup-ldap.sh` 里是明文，历史残留 |
-| 高 | LDAP 改走 LDAPS (636) | 现在走 389，明文传 bind password |
-| 中 | 给本地 admin 账号重置邮箱 | 避免和 LDAP 内的 Suntek.Q.Ma 语义混淆 |
-| 中 | 配置自动备份（DB + 用户数据） | 每日增量 + 每周全量 |
-| 中 | 清理 `Undefined array key "mail"` 日志噪音 | 见 LDAP 章节 |
-| 低 | 给 LDAP 同步的 Suntek 加入 admin 组 | 目前只有本地 admin 是管理员 |
-| 低 | SAML 签名强化 | `security-authnRequestsSigned=1`、`wantAssertionsSigned=1` |
 
 ---
 
