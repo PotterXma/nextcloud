@@ -14,7 +14,7 @@ LDAP_HOST="10.1.37.133"
 LDAP_PORT="389"
 LDAP_URI="ldap://${LDAP_HOST}:${LDAP_PORT}"
 LDAP_AGENT_DN='CN=rundecksvc,OU=ServiceAccounts,OU=ITIN,OU=Special Accounts,DC=buyabs,DC=corp'
-LDAP_AGENT_PWD='newegg@123'
+LDAP_AGENT_PWD='d9LbBYQBo&IdiXcJ'
 LDAP_BASE_DN='DC=buyabs,DC=corp'
 
 echo "==> [1/4] 检查容器是否运行"

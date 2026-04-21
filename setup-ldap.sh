@@ -21,7 +21,7 @@ OCC="docker exec -u www-data ${CONTAINER} php occ"
 LDAP_HOST="ldap://10.1.37.133"
 LDAP_PORT=389
 LDAP_AGENT_DN='CN=rundecksvc,OU=ServiceAccounts,OU=ITIN,OU=Special Accounts,DC=buyabs,DC=corp'
-LDAP_AGENT_PWD='newegg@123'
+LDAP_AGENT_PWD='d9LbBYQBo&IdiXcJ'
 LDAP_BASE_DN='DC=buyabs,DC=corp'
 
 # ---- 用户/组过滤器（按需调整）----
@@ -92,9 +92,10 @@ set_cfg useMemberOfToDetectMembership "1"
 
 echo
 echo "==> [6] 与 SAML 对齐的关键配置"
-# 让 Nextcloud 内部 username = AD 的 sAMAccountName
-# SAML 那边要保证 NameID/uid claim 也是 sAMAccountName
-set_cfg ldapExpertUsernameAttr  "sAMAccountName"
+# 你们 SAML 返回的是 email，所以 LDAP Internal Username 用 mail
+# 这样 SAML uid (xxx@newegg.com) = LDAP 用户 UID，直接对齐
+# UUID 仍然用 objectGUID（用户改名/迁 OU 不会断）
+set_cfg ldapExpertUsernameAttr  "mail"
 set_cfg ldapExpertUUIDUserAttr  "objectGUID"
 set_cfg ldapExpertUUIDGroupAttr "objectGUID"
 
