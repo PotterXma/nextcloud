@@ -90,8 +90,8 @@ case "${MODE}" in
     echo "[$(TS)]   同步前启用用户: ${BEFORE_COUNT}"
 
     # ===== 执行全量同步 =====
-    echo "[$(TS)] → 全量同步：user:sync --re-sync-all --missing-account-action=disable"
-    $OCC user:sync -u user_ldap --re-sync-all --missing-account-action=disable 2>&1 || true
+    echo "[$(TS)] → 全量同步：user:sync user_ldap --re-sync-all --missing-account-action=disable"
+    $OCC user:sync user_ldap --re-sync-all --missing-account-action=disable 2>&1 || true
 
     # ===== 同步后快照 =====
     echo "[$(TS)] → 快照：记录同步后启用的用户列表"
