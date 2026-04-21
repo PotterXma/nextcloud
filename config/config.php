@@ -121,4 +121,10 @@ $CONFIG = array (
   'mail_from_address' => 'nextcloud',
   'mail_domain' => 'newegg.com',
   'mail_smtptimeout' => 30,
+  'activity_default_settings' => [
+    'email' => [
+      'settings' => false,
+      'security' => false,
+    ],
+  ],
 );
