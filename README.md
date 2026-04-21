@@ -1,10 +1,29 @@
 # Nextcloud
+
 部署服务器 : 172.16.160.231 e11ncloud01
 访问地址 : https://nextcloud.newegg.org
 
-
-
 基于 Docker Compose 的 Nextcloud 企业级私有云部署方案，面向 Newegg 内网环境。
+已打通 **Azure AD SAML SSO + AD LDAP 用户同步 + 内网 SMTP** 三大体系。
+
+---
+
+## 目录
+
+1. [架构概览](#架构概览)
+2. [前置条件](#前置条件)
+3. [快速部署](#快速部署)
+4. [配置说明](#配置说明)
+5. [SAML SSO 配置（Azure AD）](#saml-sso-配置azure-ad)
+6. [LDAP / AD 用户与组同步](#ldap--ad-用户与组同步)
+7. [SMTP 邮件配置](#smtp-邮件配置)
+8. [数据持久化](#数据持久化)
+9. [运维操作](#运维操作)
+10. [故障排查](#故障排查)
+11. [安全事项与待办](#安全事项与待办)
+12. [目录结构](#目录结构)
+
+---
 
 ## 架构概览
 
@@ -16,45 +35,50 @@
                                   │ :443 → :8080
                     ┌─────────────┴─────────────┐
                     │      Docker Network        │
-                    │      (nextcloud_net)        │
-                    │                             │
-          ┌─────────┴─────────┐                   │
-          │   nextcloud_app   │◄─── cron 容器      │
-          │   (Nextcloud 33)  │    (定时任务)       │
-          └──┬──────┬─────────┘                   │
-             │      │                             │
-      ┌──────┘      └──────┐                      │
-      ▼                    ▼                      │
-┌───────────┐      ┌──────────────┐               │
-│  MariaDB  │      │    Redis     │               │
-│  10.11    │      │  7 (Alpine)  │               │
-└───────────┘      └──────────────┘               │
-                                                  │
-        数据持久化:                                │
-        ├── db_data (volume)    → MariaDB 数据      │
-        ├── nextcloud_data (volume) → 应用文件       │
-        ├── /nextcloud-data (bind) → 用户文件        │
-        ├── ./config (bind)     → PHP 配置片段       │
-        └── ./custom_apps (bind)→ 自定义应用          │
-                    └─────────────────────────────┘
+                    │      (nextcloud_net)       │
+                    │                            │
+          ┌─────────┴─────────┐                  │
+          │   nextcloud_app   │◄── cron 容器     │
+          │   (Nextcloud 33)  │   (定时任务)     │
+          └──┬──────┬─────────┘                  │
+             │      │                            │
+      ┌──────┘      └──────┐                     │
+      ▼                    ▼                     │
+┌───────────┐      ┌──────────────┐              │
+│  MariaDB  │      │    Redis     │              │
+│  10.11    │      │  7 (Alpine)  │              │
+└───────────┘      └──────────────┘              │
+                                                 │
+       外部依赖：                                 │
+       ├── Azure AD (SAML IdP)                    │
+       ├── AD / LDAP 10.1.37.133 (BUYABS.CORP)   │
+       └── SMTP 中继 10.1.37.41:25                │
+                    └────────────────────────────┘
 ```
 
 | 服务 | 镜像 | 端口 | 用途 |
 |------|------|------|------|
-| `app` | `nextcloud:latest` | `8080:80` | Nextcloud 主服务 |
+| `app` | `nextcloud:latest` (33.0.2.2) | `8080:80` | Nextcloud 主服务 |
 | `db` | `mariadb:10.11` | internal | 数据库（binlog + ROW 格式） |
 | `redis` | `redis:7-alpine` | internal | 分布式缓存 & 文件锁 |
 | `cron` | `nextcloud:latest` | — | 后台定时任务（`/cron.sh`） |
 
 > 所有镜像统一从内部 Registry `a.newegg.org/newegg-docker/` 拉取。
 
+---
+
 ## 前置条件
 
-- Docker Engine ≥ 20.10
-- Docker Compose ≥ 1.29（或 `docker compose` v2）
+- Docker Engine ≥ 20.10，Docker Compose ≥ 1.29（或 `docker compose` v2）
 - 宿主机预创建目录：`/nextcloud-data`（用户数据挂载点）
 - 负载均衡器已配置 HTTPS 终止，后端转发至 `:8080`
 - DNS 解析：`nextcloud.newegg.org` → LB VIP
+- **网络可达性**：
+  - Nextcloud → `10.1.37.133:389` (AD LDAP)
+  - Nextcloud → `10.1.37.41:25` (内网 SMTP)
+  - Nextcloud ↔ `login.microsoftonline.com` (Azure AD)
+
+---
 
 ## 快速部署
 
@@ -65,7 +89,7 @@ git clone <repo-url> && cd nextcloud
 # 2. 创建宿主机数据目录
 sudo mkdir -p /nextcloud-data
 
-# 3. 修改密码（必须！见下方「安全事项」）
+# 3. 修改密码（必须！见「安全事项」）
 vim docker-compose.yaml
 
 # 4. 启动全部服务
@@ -78,254 +102,384 @@ docker compose logs -f app
 
 首次启动约需 1-2 分钟完成数据库初始化和应用安装。访问 `https://nextcloud.newegg.org` 验证。
 
+---
+
 ## 配置说明
 
-配置文件采用 Nextcloud 的 [分片加载机制](https://docs.nextcloud.com/server/latest/admin_manual/configuration_server/config_sample_php_parameters.html)，`config/` 下每个 `.config.php` 文件独立管理一个功能模块：
+配置文件采用 Nextcloud 的分片加载机制，`config/` 下每个 `.config.php` 独立管理一个功能模块。核心 `config.php` 由 Nextcloud 管理（`instanceid`、`passwordsalt`、`secret` 自动生成，**不要手动改**）。
 
-| 文件 | 功能 | 关键参数 |
-|------|------|----------|
-| `config.php` | 主配置 | 数据库连接、trusted_domains、缓存 |
-| `redis.config.php` | Redis 缓存 | `REDIS_HOST`、分布式锁 |
-| `s3.config.php` | S3 对象存储 | `OBJECTSTORE_S3_*` 环境变量驱动 |
-| `smtp.config.php` | 邮件发送 | `SMTP_HOST`、`MAIL_FROM_ADDRESS`、`MAIL_DOMAIN` |
-| `reverse-proxy.config.php` | 反向代理适配 | `OVERWRITEPROTOCOL`、`TRUSTED_PROXIES` |
-| `apache-pretty-urls.config.php` | URL 美化 | `.htaccess` rewrite |
-| `apcu.config.php` | 本地缓存 | APCu memcache |
-| `apps.config.php` | 应用路径 | `/apps` + `/custom_apps` |
+当前生效的关键参数（`config/config.php`）：
 
-### 关键环境变量
+```php
+'overwritehost'      => 'nextcloud.newegg.org',
+'overwriteprotocol'  => 'https',
+'trusted_proxies'    => ['172.16.0.0/12'],
+'trusted_domains'    => ['localhost', 'nextcloud.newegg.org'],
+'memcache.local'     => '\\OC\\Memcache\\APCu',
+'memcache.distributed' => '\\OC\\Memcache\\Redis',
+'memcache.locking'   => '\\OC\\Memcache\\Redis',
+'redis'              => ['host' => 'redis', 'port' => 6379],
+'dbtype'             => 'mysql',
+'dbhost'             => 'db',
+'dbname'             => 'nextcloud',
+'version'            => '33.0.2.2',
+```
 
-在 `docker-compose.yaml` 中配置：
+### 关键环境变量（`docker-compose.yaml`）
 
 ```yaml
-# 反向代理 / LB
 NEXTCLOUD_TRUSTED_DOMAINS: nextcloud.newegg.org
 OVERWRITEPROTOCOL: https
 OVERWRITEHOST: nextcloud.newegg.org
 TRUSTED_PROXIES: 172.16.0.0/12
-
-# PHP 性能
 PHP_MEMORY_LIMIT: 512M
 PHP_UPLOAD_LIMIT: 10G
 ```
 
-### S3 对象存储（可选）
+---
 
-如需将文件存储迁移至 S3 兼容后端，设置以下环境变量：
+## SAML SSO 配置（Azure AD）
 
-```yaml
-OBJECTSTORE_S3_BUCKET: nextcloud
-OBJECTSTORE_S3_HOST: s3.newegg.org
-OBJECTSTORE_S3_KEY: <access-key>
-OBJECTSTORE_S3_SECRET: <secret-key>
-OBJECTSTORE_S3_REGION: us-east-1
-OBJECTSTORE_S3_USEPATH_STYLE: "true"   # MinIO / 非 AWS 需要
-```
-
-### SMTP 邮件（可选）
-
-```yaml
-SMTP_HOST: 10.1.37.41
-SMTP_PORT: 25
-MAIL_FROM_ADDRESS: nextcloud
-MAIL_DOMAIN: newegg.com
-```
-
-## 自定义应用
-
-`custom_apps/` 目录挂载到容器内 `/var/www/html/custom_apps`，可写入第三方应用。
-
-当前已安装：
-
-| 应用 | 用途 |
-|------|------|
-| `user_saml` | SAML SSO 单点登录（Azure AD 集成） |
-
-安装新应用：
-```bash
-# 方式一：通过 occ 命令
-docker exec -u www-data nextcloud_app php occ app:install <app-name>
-
-# 方式二：手动下载解压到 custom_apps/
-tar -xzf <app>.tar.gz -C custom_apps/
-docker exec -u www-data nextcloud_app php occ app:enable <app-name>
-```
-
-## SAML SSO 配置
-
-已集成 `user_saml` v7.1.4 应用（兼容 Nextcloud 30-33），支持 Azure AD SAML 2.0 认证。
+集成 `user_saml` v7.x（兼容 NC 30-33），IdP 是 **Azure AD / Microsoft Entra**。
+企业内部 uid = 邮箱（`xxx@newegg.com`），由 SAML 的 `emailaddress` claim 承载。
 
 ### SP（Nextcloud）端点
 
-| 端点 | URL | 用途 |
-|------|-----|------|
-| Metadata | `https://nextcloud.newegg.org/apps/user_saml/saml/metadata` | SP 元数据（XML），Azure AD 注册时填入 |
-| ACS | `https://nextcloud.newegg.org/apps/user_saml/saml/acs` | Assertion Consumer Service（POST） |
-| SLS | `https://nextcloud.newegg.org/apps/user_saml/saml/sls` | Single Logout Service（GET/POST） |
-| Login | `https://nextcloud.newegg.org/apps/user_saml/saml/login` | SSO 登录入口 |
+| 端点 | URL |
+|------|-----|
+| Metadata | `https://nextcloud.newegg.org/apps/user_saml/saml/metadata` |
+| ACS | `https://nextcloud.newegg.org/apps/user_saml/saml/acs` |
+| SLS | `https://nextcloud.newegg.org/apps/user_saml/saml/sls` |
+| Login | `https://nextcloud.newegg.org/apps/user_saml/saml/login` |
 
-### Step 1：Azure AD 配置
+### Azure AD 端（摘要）
 
-1. **Azure Portal → 企业应用程序 → 新建应用程序 → 创建你自己的应用程序**
-2. 进入应用 → **单一登录 → SAML**
-3. 基本 SAML 配置：
-
-   | 字段 | 值 |
-   |------|-----|
-   | 标识符（实体 ID） | `https://nextcloud.newegg.org/apps/user_saml/saml/metadata` |
-   | 回复 URL（ACS） | `https://nextcloud.newegg.org/apps/user_saml/saml/acs` |
-   | 注销 URL | `https://nextcloud.newegg.org/apps/user_saml/saml/sls` |
-
-4. **属性和声明** — 配置以下映射：
-
-   | 声明名称 | 源属性 | Nextcloud 映射字段 |
-   |----------|--------|-------------------|
-   | `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name` | `user.userprincipalname` | uid |
-   | `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` | `user.mail` | email |
-   | `http://schemas.microsoft.com/identity/claims/displayname` | `user.displayname` | displayName |
-   | `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups` | `user.groups` | groups（可选） |
-
-5. **下载**：
-   - **证书（Base64）** → 后续填入 Nextcloud IdP x509cert
-   - 记录 **登录 URL** 和 **Azure AD 标识符**
-
-### Step 2：Nextcloud 配置
-
-#### 方式一：Web UI
-
-管理设置 → **SSO & SAML 认证**：
-
-| 配置项 | 值 |
-|--------|-----|
-| SSO 类型 | SAML |
-| 显示名称 | `Azure AD SSO` |
-| UID 映射 | `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name` |
-| IdP Entity ID | `https://sts.windows.net/{tenant-id}/` |
+| 字段 | 值 |
+|------|-----|
+| 标识符（实体 ID） | `https://nextcloud.newegg.org/apps/user_saml/saml/metadata` |
+| 回复 URL（ACS） | `https://nextcloud.newegg.org/apps/user_saml/saml/acs` |
+| 注销 URL | `https://nextcloud.newegg.org/apps/user_saml/saml/sls` |
+| IdP Entity ID | `https://sts.windows.net/b373f4fd-145d-419e-84f3-94a708ca5b3e/` |
 | IdP SSO URL | `https://login.microsoftonline.com/{tenant-id}/saml2` |
-| IdP SLO URL | `https://login.microsoftonline.com/{tenant-id}/saml2` |
-| IdP x509 证书 | （粘贴 Azure 下载的 Base64 证书内容） |
+
+**属性声明 / Claim**（必须返回邮箱，用作 uid）：
+
+| Claim | 源属性 |
+|-------|--------|
+| `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` | `user.mail` |
+| `http://schemas.microsoft.com/identity/claims/displayname` | `user.displayname` |
+
+### Nextcloud 端关键配置
+
+UID mapping **必须指向邮箱 claim**（才能和 LDAP 里设置的 `ldapExpertUsernameAttr=mail` 对齐）：
+
+```
+general-uid_mapping = http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress
+```
 
 属性映射：
 
-| 字段 | Claim URI |
-|------|-----------|
-| displayName | `http://schemas.microsoft.com/identity/claims/displayname` |
-| email | `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` |
-
-#### 方式二：occ 命令行
-
-```bash
-# 创建 SAML Provider（返回 provider ID）
-docker exec -u www-data nextcloud_app php occ saml:config:create
-
-# 设置 IdP 参数（假设 provider ID = 1）
-docker exec -u www-data nextcloud_app php occ saml:config:set \
-  --general-idp0_display_name="Azure AD SSO" \
-  --general-uid_mapping="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name" \
-  --idp-entityId="https://sts.windows.net/{tenant-id}/" \
-  --idp-singleSignOnService.url="https://login.microsoftonline.com/{tenant-id}/saml2" \
-  --idp-singleLogoutService.url="https://login.microsoftonline.com/{tenant-id}/saml2" \
-  --idp-x509cert="$(cat /path/to/azure-cert.pem)" \
-  1
-
-# 设置属性映射
-docker exec -u www-data nextcloud_app php occ saml:config:set \
-  --saml-attribute-mapping-displayName_mapping="http://schemas.microsoft.com/identity/claims/displayname" \
-  --saml-attribute-mapping-email_mapping="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress" \
-  1
-
-# 查看当前配置
-docker exec -u www-data nextcloud_app php occ saml:config:get
-
-# 导出 SP 元数据（用于 Azure AD 注册）
-docker exec -u www-data nextcloud_app php occ saml:metadata
+```
+saml-attribute-mapping-displayName_mapping = http://schemas.microsoft.com/identity/claims/displayname
+saml-attribute-mapping-email_mapping       = http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress
 ```
 
-### Step 3：全局设置
+### 应用级（全局）开关 — 用 `config:app:set` 设置
+
+> ⚠️ 这几个是 **app-level** 开关，不能用 `occ saml:config:set`（那是 per-provider 的）。
 
 ```bash
-# 设置 SSO 类型为 SAML
-docker exec -u www-data nextcloud_app php occ config:app:set user_saml type --value="saml"
+OCC='docker exec -u www-data nextcloud_app php occ'
 
-# 允许多后端（SAML + 本地密码同时生效）
-docker exec -u www-data nextcloud_app php occ config:app:set user_saml general-allow_multiple_user_back_ends --value="1"
+# 1. 要求用户必须已被其他后端预建（关键：阻止 SAML 自动建号）
+$OCC config:app:set user_saml general-require_provisioned_account --value=1
 
-# 要求用户必须预配置（关闭自动创建账号）
-docker exec -u www-data nextcloud_app php occ config:app:set user_saml general-require_provisioned_account --value="0"
+# 2. 允许同时启用多个用户后端（SAML + LDAP 共存）
+$OCC config:app:set user_saml general-allow_multiple_user_back_ends --value=1
+
+# 3. 允许桌面客户端用 SAML 登录
+$OCC config:app:set user_saml general-use_saml_auth_for_desktop --value=1
+
+# 校验
+$OCC config:app:get user_saml general-require_provisioned_account
+$OCC config:app:get user_saml general-allow_multiple_user_back_ends
+$OCC config:app:get user_saml general-use_saml_auth_for_desktop
 ```
 
-> **提示**：设置 `general-require_provisioned_account=0` 时，SAML 认证成功后会自动创建 Nextcloud 用户。设为 `1` 则要求管理员预先创建用户。
-
-### 可选安全加固
+### 验证
 
 ```bash
-# 签名 AuthnRequest
-docker exec -u www-data nextcloud_app php occ saml:config:set --security-authnRequestsSigned="1" 1
+# 导出 SP 元数据（给 Azure AD 做 SP 注册）
+$OCC saml:metadata
 
-# 要求 Assertion 签名
-docker exec -u www-data nextcloud_app php occ saml:config:set --security-wantAssertionsSigned="1" 1
+# 查当前 IdP 配置
+$OCC saml:config:get
 
-# 要求消息签名
-docker exec -u www-data nextcloud_app php occ saml:config:set --security-wantMessagesSigned="1" 1
+# 用任意 AD 用户走一遍 SAML 登录，然后验证后端是 LDAP 而不是 SAML
+$OCC user:list --info | grep -i '<邮箱前缀>'
+# 期望: backend: LDAP
 ```
 
 ### SAML 故障排查
 
-```bash
-# 检查 SAML 应用状态
-docker exec -u www-data nextcloud_app php occ app:list | grep user_saml
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| 登录后立即跳回登录页 | `trusted_domains` 缺失 | `config.php` 加入 `nextcloud.newegg.org` |
+| SAML Response 验签失败 | 证书不匹配/过期 | 重新从 Azure 下载证书，更新 `idp-x509cert` |
+| `Account not provisioned` | LDAP 没同步该用户 | 在 AD 里激活账号 → `$OCC user:sync --list -u user_ldap` |
+| `404 /apps/user_saml/saml/acs` | 应用未启用 | `$OCC app:enable user_saml` |
+| SSO 挂掉要救急 | 本地密码登录入口 | `https://nextcloud.newegg.org/login?direct=1` |
 
-# 查看 SAML 相关日志
-docker exec nextcloud_app grep -i saml /var/www/html/data/nextcloud.log | tail -20
+---
 
-# 验证 SP metadata 可访问
-curl -k https://nextcloud.newegg.org/apps/user_saml/saml/metadata
+## LDAP / AD 用户与组同步
 
-# 直接访问本地密码登录（SSO 故障时备用）
-# https://nextcloud.newegg.org/login?direct=1
+| 项目 | 值 |
+|------|-----|
+| AD 域 | `BUYABS.CORP` |
+| LDAP Server | `ldap://10.1.37.133:389` |
+| Service Account | `CN=rundecksvc,OU=ServiceAccounts,OU=ITIN,OU=Special Accounts,DC=buyabs,DC=corp` |
+| Base DN | `DC=buyabs,DC=corp` |
+| 当前同步规模 | **420 用户 / 3288 组** |
+
+### 两个关键对齐：邮箱作为 uid，objectGUID 作为 UUID
+
+```
+ldapExpertUsernameAttr = mail          # Internal Username 用邮箱
+ldapExpertUUIDUserAttr = objectGUID    # 稳定 UUID（改名/迁 OU 不断）
+ldapEmailAttribute     = mail
+ldapUserDisplayName    = displayName
 ```
 
-| 常见问题 | 原因 | 解决 |
-|----------|------|------|
-| 登录后跳转回登录页 | trusted_domains 未包含域名 | 检查 `config.php` 的 `trusted_domains` |
-| SAML Response 验证失败 | 证书不匹配或过期 | 重新下载 Azure 证书并更新 `idp-x509cert` |
-| 用户创建失败 | UID mapping 为空 | 确认 Azure 声明中包含对应属性 |
-| `404 /apps/user_saml/saml/acs` | 应用未启用 | `php occ app:enable user_saml` |
+**为什么 `ldapExpertUsernameAttr=mail`？**
+因为 SAML 返回的是邮箱，LDAP 的 Internal Username 也用邮箱，两边 uid 完全一致，SAML 登录时就能直接命中 LDAP 账号，不会重复建号。
+
+### 过滤器
+
+```
+# 用户：排除被禁用的 AD 账号（userAccountControl bit 0x2）
+ldapUserFilter  = (&(objectClass=user)(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+
+# 登录：支持 sAMAccountName 或 邮箱
+ldapLoginFilter = (&(objectClass=user)(objectCategory=person)(|(sAMAccountName=%uid)(mail=%uid)))
+
+# 组：拉取所有 AD 安全组
+ldapGroupFilter = (&(objectClass=group))
+```
+
+### 首次部署流程
+
+部署脚本在 `E:\Work\nextcloud\`：
+
+```bash
+# 1. 连通性 & 绑定测试（先跑这个）
+bash test-ldap.sh
+
+# 2. 正式写配置
+bash setup-ldap.sh                # 新建配置
+bash setup-ldap.sh s01            # 或更新已有配置
+```
+
+脚本自动完成：`ldap:create-empty-config` → 写服务器参数 → 写过滤器 → 写属性映射 → `ldap:test-config` → 激活。
+
+### 常用运维命令
+
+```bash
+OCC='docker exec -u www-data nextcloud_app php occ'
+
+# 查看所有 LDAP 配置
+$OCC ldap:show-config
+
+# 测试配置连通性
+$OCC ldap:test-config s01
+
+# 对某个 UID 在 LDAP 端查询
+$OCC ldap:search --limit 5000 'suntek.q.ma'
+
+# 手动触发增量同步（cron 也会跑）
+$OCC user:sync --list -u user_ldap
+
+# 清除整个 LDAP 缓存后重新同步
+$OCC user:sync --re-sync-all user_ldap
+
+# 统计用户 / 组
+$OCC user:list | wc -l          # 420
+$OCC group:list | wc -l         # 3288
+$OCC user:list --info | grep 'backend: ' | sort | uniq -c
+```
+
+### 清理遗留的 SAML 孤儿 / LDAP `_NNNN` 后缀账号
+
+早期（`require_provisioned_account=0` 时代）SAML 直接 auto-provision 过一批 user_saml 账号；LDAP 后来同步时撞名，被迫加 `_NNNN` 后缀。**正确清理方法**：
+
+```bash
+# 对某个有 _NNNN 后缀的 LDAP 账号
+OCC="docker exec -i -u www-data nextcloud_app bash -c"
+
+# ldap:reset-user 会自动处理 mapping，不会再触发撞名
+$OCC 'yes y | php occ ldap:reset-user Suntek.Q.Ma@newegg.com_3117'
+
+# 对 user_saml 后端的孤儿（先检查数据，再删）
+$OCC 'php occ user:list --info | grep -B1 "backend: user_saml"'
+$OCC 'php occ user:delete <uid>'
+```
+
+> **不要用 `maintenance:mode --on`** 做清理 — 维护模式下后端会被禁用，`user:delete` 会失败。
+
+### 回滚 LDAP 配置
+
+```bash
+OCC='docker exec -u www-data nextcloud_app php occ'
+
+# 1. 先失活
+$OCC ldap:set-config s01 ldapConfigurationActive 0
+
+# 2. 删除配置
+$OCC ldap:delete-config s01
+
+# 3.（可选）禁用整个 user_ldap 应用
+$OCC app:disable user_ldap
+```
+
+> ⚠️ LDAP 后端创建的用户记录不会自动删除：他们的 backend 会变成 `missing`，共享和文件仍在数据库里。需要彻底清理时用 `$OCC user:delete <username>`。
+
+### 已知的日志噪音
+
+`nextcloud.log` 里会周期性出现：
+
+```
+Undefined array key "mail" ... at lib/User/Backend.php ... Access.php:555
+```
+
+来源是 AD 里有 **少数账号没有 `mail` 属性**（多半是服务账号 / 空壳账号）。不影响功能。彻底消除需要：
+
+- 方案 A：在 `ldapUserFilter` 加上 `(mail=*)`，只同步有邮箱的账号 — 风险是会漏掉合法但暂时没邮箱的用户
+- 方案 B：等 user_ldap 上游修复 `#44xxx`
+- 当前：**忽略**
+
+---
+
+## SMTP 邮件配置
+
+| 项 | 值 |
+|-----|-----|
+| SMTP Server | `10.1.37.41:25` |
+| 认证 | **无**（内网 IP 白名单） |
+| TLS | 关闭（普通 25 端口） |
+| `mail_from_address` | `nextcloud` |
+| `mail_domain` | `newegg.com` |
+| 系统邮件发件人 | `nextcloud@newegg.com` |
+
+### 配置命令（已执行）
+
+```bash
+OCC='docker exec -u www-data nextcloud_app php occ'
+
+$OCC config:system:set mail_smtpmode     --value=smtp
+$OCC config:system:set mail_sendmailmode --value=smtp
+$OCC config:system:set mail_smtphost     --value=10.1.37.41
+$OCC config:system:set mail_smtpport     --value=25
+$OCC config:system:set mail_smtpauthtype --value=LOGIN
+$OCC config:system:set mail_smtpauth     --value=false --type=boolean
+$OCC config:system:set mail_smtpsecure   --value=""
+$OCC config:system:set mail_smtpname     --value=""
+$OCC config:system:set mail_smtppassword --value=""
+$OCC config:system:set mail_from_address --value=nextcloud
+$OCC config:system:set mail_domain       --value=newegg.com
+```
+
+> 注意 `mail_smtpauth` 必须是 **literal `false`**（配合 `--type=boolean`），不能写 `0` — occ 会报 *Unable to parse value as boolean*。
+
+### 测试
+
+**Web UI** — 管理设置 → 基本设置 → 邮件服务器 → 「发送邮件」。
+
+**容器内快速自测**：
+
+```bash
+docker exec nextcloud_app bash -c '
+  echo -e "EHLO nextcloud.newegg.org\nQUIT" | nc 10.1.37.41 25
+'
+```
+
+### SMTP 故障排查
+
+| 现象 | 排查 |
+|------|------|
+| 测试邮件超时 | `telnet 10.1.37.41 25` 确认容器能出网；`iptables -nL` on 10.1.37.41 放行源 IP |
+| `550 Sender rejected` | `mail_domain` / `mail_from_address` 和 SMTP Relay 允许发件策略不匹配 |
+| 邮件没到但日志无报错 | Exchange 里收件人是否在拒收列表 / 邮件归到垃圾箱 |
+
+---
 
 ## 数据持久化
 
-| 路径 | 类型 | 内容 |
-|------|------|------|
-| `db_data` | Docker volume | MariaDB 数据文件 |
-| `nextcloud_data` | Docker volume | Nextcloud 核心文件 |
-| `/nextcloud-data` | 宿主机 bind mount | 用户上传的文件数据 |
-| `./config` | 宿主机 bind mount | PHP 配置（Git 管理） |
-| `./custom_apps` | 宿主机 bind mount | 第三方应用（Git 管理） |
+### Volumes 总览
+
+| 宿主机路径 | 容器内路径 | 类型 | 说明 | 需备份 |
+|------------|-----------|------|------|--------|
+| `db_data` (named) | `/var/lib/mysql` | Docker volume | MariaDB 数据文件（所有表、索引、binlog） | ✅ 用 `mysqldump` |
+| `nextcloud_data` (named) | `/var/www/html` | Docker volume | Nextcloud PHP 程序文件、内置应用 | ❌ 镜像自带，升级会重建 |
+| `/nextcloud-data` | `/var/www/html/data` | Bind mount | **用户上传的所有文件**，按 `data/<uid>/files/` 存储；也包含 `nextcloud.log` | ✅ 最重要 |
+| `./config` | `/var/www/html/config` | Bind mount | PHP 配置片段（`config.php` + 各模块 `.config.php`），Git 管理 | ✅ Git 已跟踪 |
+| `./custom_apps` | `/var/www/html/custom_apps` | Bind mount | 手动安装的第三方应用（如 `user_saml`），Git 管理 | ✅ Git 已跟踪 |
+
+> `app` 和 `cron` 两个容器共享完全相同的 volume 挂载，确保 cron 任务能访问同一份数据和配置。
+
+### 用户文件存储结构
+
+```
+/nextcloud-data/                        # 宿主机
+├── admin/
+│   └── files/                          # admin 用户的文件
+│       ├── Documents/
+│       └── Photos/
+├── Suntek.Q.Ma@newegg.com/
+│   └── files/                          # LDAP 用户的文件（uid = 邮箱）
+├── appdata_xxxxxxxxxx/                 # Nextcloud 内部应用数据
+├── nextcloud.log                       # 应用日志
+└── .ocdata                             # Nextcloud 数据目录标记文件
+```
+
+### Named Volume vs Bind Mount
+
+- **Named Volume**（`db_data`、`nextcloud_data`）：由 Docker 管理，数据在宿主机 `/var/lib/docker/volumes/<name>/_data/`，不建议直接操作
+- **Bind Mount**（`/nextcloud-data`、`./config`、`./custom_apps`）：直接映射宿主机目录，方便备份和 Git 管理
+
+> [!IMPORTANT]
+> `/nextcloud-data` 必须在部署前预创建，且权限需允许容器内 `www-data`（uid 33）读写：
+> ```bash
+> sudo mkdir -p /nextcloud-data
+> sudo chown 33:33 /nextcloud-data
+> ```
+
+---
 
 ## 运维操作
 
 ### 常用 occ 命令
 
 ```bash
-# 进入容器执行 occ
 alias occ='docker exec -u www-data nextcloud_app php occ'
 
-# 扫描文件变更
-occ files:scan --all
+# 状态 / 升级
+occ status
+occ upgrade
 
 # 维护模式
 occ maintenance:mode --on
 occ maintenance:mode --off
 
-# 数据库索引优化
+# 文件扫描
+occ files:scan --all
+occ files:scan <username>
+
+# DB 维护
 occ db:add-missing-indices
 occ db:add-missing-columns
+occ db:convert-filecache-bigint
 
-# 升级
-occ upgrade
-
-# 状态检查
-occ status
+# LDAP / SAML / SMTP 见上文对应章节
 ```
 
 ### 备份
@@ -335,75 +489,99 @@ occ status
 docker exec -u www-data nextcloud_app php occ maintenance:mode --on
 
 # 2. 备份数据库
-docker exec nextcloud_db mysqldump -u root -p'<ROOT_PASSWORD>' nextcloud > backup_$(date +%F).sql
+docker exec nextcloud_db mysqldump -u root -p'<ROOT_PASSWORD>' nextcloud \
+  > backup_$(date +%F).sql
 
 # 3. 备份用户数据
 tar -czf nextcloud-data_$(date +%F).tar.gz /nextcloud-data
 
-# 4. 退出维护模式
+# 4. 备份配置（其实 git 里已经有了）
+tar -czf config_$(date +%F).tar.gz config/ custom_apps/
+
+# 5. 退出维护模式
 docker exec -u www-data nextcloud_app php occ maintenance:mode --off
 ```
 
 ### 升级 Nextcloud
 
 ```bash
-# 1. 拉取新镜像
 docker compose pull app cron
-
-# 2. 滚动更新
 docker compose up -d app cron
-
-# 3. 执行数据库迁移
 docker exec -u www-data nextcloud_app php occ upgrade
 docker exec -u www-data nextcloud_app php occ db:add-missing-indices
 ```
 
-## 安全事项
-
-> [!CAUTION]
-> `docker-compose.yaml` 和 `config/config.php` 中包含数据库密码和管理员密码的占位值。
-> **部署前必须修改为强密码，且不要将真实密码提交到 Git。**
-
-建议：
-- 使用 `.env` 文件 + `env_file:` 指令管理敏感信息
-- 将 `.env` 加入 `.gitignore`
-- `config.php` 中的 `passwordsalt`、`secret`、`instanceid` 在首次安装后自动生成，**不要手动修改**
+---
 
 ## 故障排查
 
 ```bash
-# 查看应用日志
+# 容器日志
 docker compose logs -f app
 
-# 查看 Nextcloud 内部日志
-docker exec nextcloud_app cat /var/www/html/data/nextcloud.log | tail -50
+# Nextcloud 内部日志
+docker exec nextcloud_app tail -200 /var/www/html/data/nextcloud.log
 
-# 检查数据库连接
-docker exec nextcloud_db mysql -u nextcloud -p'<PASSWORD>' -e "SELECT 1"
+# 实时看 SAML / LDAP 相关日志
+docker exec nextcloud_app tail -f /var/www/html/data/nextcloud.log \
+  | grep -iE 'saml|ldap|smtp'
 
-# 检查 Redis 连接
+# 数据库连接
+docker exec nextcloud_db mysql -u nextcloud -p'<PASSWORD>' -e 'SELECT 1'
+
+# Redis 连接
 docker exec nextcloud_redis redis-cli ping
 
-# 解决文件权限问题
+# 修文件权限
 docker exec nextcloud_app chown -R www-data:www-data /var/www/html/data
 ```
+
+---
+
+## 安全事项与待办
+
+### 部署期强制项
+
+> [!CAUTION]
+> `docker-compose.yaml` 和 `config/config.php` 中包含数据库密码等占位值。
+> **部署前必须改为强密码，真实凭据不要进 Git。**
+
+- 用 `.env` + `env_file:` 管理敏感信息，`.env` 加入 `.gitignore`
+- `config.php` 的 `passwordsalt` / `secret` / `instanceid` 首次安装自动生成，**不要手改**
+- LDAP Service Account (`rundecksvc`) 密码明文出现在 `setup-ldap.sh` — 部署完毕应从脚本清掉，或 `chmod 600`
+
+### 待办清单
+
+| 优先级 | 项 | 说明 |
+|--------|-----|------|
+| 高 | 轮换 `rundecksvc` 密码 | 当前密码 `setup-ldap.sh` 里是明文，历史残留 |
+| 高 | LDAP 改走 LDAPS (636) | 现在走 389，明文传 bind password |
+| 中 | 给本地 admin 账号重置邮箱 | 避免和 LDAP 内的 Suntek.Q.Ma 语义混淆 |
+| 中 | 配置自动备份（DB + 用户数据） | 每日增量 + 每周全量 |
+| 中 | 清理 `Undefined array key "mail"` 日志噪音 | 见 LDAP 章节 |
+| 低 | 给 LDAP 同步的 Suntek 加入 admin 组 | 目前只有本地 admin 是管理员 |
+| 低 | SAML 签名强化 | `security-authnRequestsSigned=1`、`wantAssertionsSigned=1` |
+
+---
 
 ## 目录结构
 
 ```
 nextcloud/
 ├── docker-compose.yaml          # 服务编排
-├── README.md
+├── README.md                    # 本文件
+├── setup-ldap.sh                # LDAP 一键配置脚本
+├── test-ldap.sh                 # LDAP 连通性 / bind / search 预检
 ├── config/                      # Nextcloud PHP 配置片段
-│   ├── config.php               # 主配置（自动生成 + 运维维护）
-│   ├── redis.config.php         # Redis 缓存配置
-│   ├── s3.config.php            # S3 对象存储配置
-│   ├── smtp.config.php          # SMTP 邮件配置
-│   ├── reverse-proxy.config.php # 反向代理 / LB 适配
+│   ├── config.php               # 主配置（Nextcloud 管理 + 运维维护）
+│   ├── redis.config.php
+│   ├── s3.config.php
+│   ├── smtp.config.php
+│   ├── reverse-proxy.config.php
 │   ├── apache-pretty-urls.config.php
 │   ├── apcu.config.php
-│   ├── apps.config.php
-│   └── ...
-└── custom_apps/                 # 第三方应用
-    └── user_saml/               # SAML SSO 插件
+│   └── apps.config.php
+├── custom_apps/                 # 第三方应用
+│   └── user_saml/               # SAML SSO 插件 v7.x
+└── data/                        # 运行时 - nextcloud.log 等（bind）
 ```
