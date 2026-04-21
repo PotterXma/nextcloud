@@ -626,12 +626,41 @@ docker exec -u www-data nextcloud_app php occ maintenance:mode --off
 
 ### 升级 Nextcloud
 
-```bash
-docker compose pull app cron
-docker compose up -d app cron
-docker exec -u www-data nextcloud_app php occ upgrade
-docker exec -u www-data nextcloud_app php occ db:add-missing-indices
-```
+> [!WARNING]
+> Nextcloud **绝对不支持跨主版本升级**（例如：不允许 31 → 33，必须 31 → 32 → 33）。
+> 如果你在 `docker-compose.yaml` 中使用的是 `nextcloud:latest` 标签，极长时间不更新后再次 `pull` 拉取镜像，可能会因为跨了多个主版本导致启动报错！
+> 为了安全，在生产环境中强烈建议将 `latest` 替换为具体的版本号（如 `nextcloud:33`），并且每次升级时手动递增主版本号。
+
+**标准 Docker 部署版的升级规范流程**：
+
+1. **备份（必须！）**：包括数据库和用户数据（见上文「备份」章节）。
+2. **下载最新镜像**：
+   ```bash
+   docker compose pull app cron
+   ```
+3. **重建容器以应用新镜像**：
+   ```bash
+   docker compose up -d app cron
+   ```
+   *(Nextcloud 的官方 Docker 镜像入口脚本会自动检测到版本号变更，并在容器启动时触发内部预处理及 `occ upgrade`)*
+4. **通过日志确认升级状态**：
+   ```bash
+   docker compose logs -f app
+   ```
+   等待日志提示升级成功并没有报错。
+5. **升级后数据库收尾优化（重要）**：
+   每次大版本升级后，通常需要建立新索引和转换部分数据类型以保证性能。请依次执行：
+   ```bash
+   OCC='docker exec -u www-data nextcloud_app php occ'
+   $OCC db:add-missing-indices
+   $OCC db:add-missing-columns
+   $OCC db:convert-filecache-bigint
+   ```
+6. **取消维护模式**：
+   如果在升级过程中卡在维护模式，或者你需要提早恢复服务，请执行：
+   ```bash
+   $OCC maintenance:mode --off
+   ```
 
 ---
 
