@@ -24,7 +24,7 @@ services:
       - nextcloud_net
 
   app:
-    image: a.newegg.org/newegg-docker/nextcloud:latest
+    image: a.newegg.org/newegg-docker/nextcloud:33
     container_name: nextcloud_app
     restart: always
     ports:
@@ -68,7 +68,7 @@ services:
       - nextcloud_net
 
   cron:
-    image: a.newegg.org/newegg-docker/nextcloud:latest
+    image: a.newegg.org/newegg-docker/nextcloud:33
     container_name: nextcloud_cron
     restart: always
     entrypoint: /cron.sh
