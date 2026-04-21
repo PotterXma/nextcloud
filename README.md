@@ -1,5 +1,5 @@
 # Nextcloud
-部署服务器 : 172.16.160.231
+部署服务器 : 172.16.160.231 e11ncloud01
 访问地址 : https://nextcloud.newegg.org
 
 
