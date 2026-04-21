@@ -298,11 +298,11 @@ $OCC ldap:test-config s01
 # 对某个 UID 在 LDAP 端查询
 $OCC ldap:search --limit 5000 'suntek.q.ma'
 
-# 手动触发增量同步（cron 也会跑）
-$OCC user:sync --list -u user_ldap
+# 手动触发增量同步（立刻跑一次后台同步队列）
+docker exec -u www-data nextcloud_app php -f cron.php
 
-# 清除整个 LDAP 缓存后重新同步
-$OCC user:sync --re-sync-all user_ldap
+# 检查由于在 AD 中被删除或禁用而产生的遗留账号
+$OCC ldap:show-remnants
 
 # 统计用户 / 组
 $OCC user:list | wc -l          # 420
@@ -369,14 +369,8 @@ Undefined array key "mail" ... at lib/User/Backend.php ... Access.php:555
 ### 部署脚本
 
 ```bash
-# 把同步脚本拷贝到服务器
-scp ldap-sync.sh root@172.16.160.231:/opt/nextcloud/
-
-# 确保可执行
-chmod +x /opt/nextcloud/ldap-sync.sh
-
-# 创建日志文件
-touch /var/log/nc-ldap.log
+# 运行一键配置脚本
+bash setup-cron.sh
 ```
 
 ### 配置宿主机 crontab
@@ -400,7 +394,7 @@ crontab -e
 | 模式 | 命令 | 说明 |
 |------|------|------|
 | 增量 | `ldap-sync.sh` | 触发 `cron.php` 跑一轮，拉新用户、更新属性 |
-| 全量 | `ldap-sync.sh full` | `--re-sync-all --missing-account-action=disable`，AD 里已禁用/删除的账号在 NC 端自动 disable |
+| 全量 | `ldap-sync.sh full` | 触发同步并检查 `ldap:show-remnants`，将 AD 里已禁用/删除的账号在 NC 端自动 disable |
 
 ### 邮件通知
 
@@ -432,7 +426,7 @@ bash /opt/nextcloud/ldap-sync.sh full
   │
   ├─ 自动路径（无需人工）
   │   └─ AD 端禁用账号 → ldap-sync.sh full (凌晨 cron)
-  │       → --missing-account-action=disable
+  │       → 查出 ldap:show-remnants (AD已不存在的用户)
   │       → NC 账号自动 disable（数据保留，登录拒绝）
   │       → 📧 邮件通知 admin 组
   │
@@ -447,9 +441,7 @@ bash /opt/nextcloud/ldap-sync.sh full
 ### 使用方式
 
 ```bash
-# 部署到服务器
-scp offboard-user.sh root@172.16.160.231:/opt/nextcloud/
-chmod +x /opt/nextcloud/offboard-user.sh
+# 如果已经跑过 setup-cron.sh，脚本会在 /opt/nextcloud 下
 
 # 只禁用（不交接文件）
 bash /opt/nextcloud/offboard-user.sh leaver@newegg.com
