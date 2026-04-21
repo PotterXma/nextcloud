@@ -16,12 +16,14 @@
 4. [配置说明](#配置说明)
 5. [SAML SSO 配置（Azure AD）](#saml-sso-配置azure-ad)
 6. [LDAP / AD 用户与组同步](#ldap--ad-用户与组同步)
-7. [SMTP 邮件配置](#smtp-邮件配置)
-8. [数据持久化](#数据持久化)
-9. [运维操作](#运维操作)
-10. [故障排查](#故障排查)
-11. [安全事项与待办](#安全事项与待办)
-12. [目录结构](#目录结构)
+7. [LDAP 定时同步](#ldap-定时同步)
+8. [员工离职处理流程](#员工离职处理流程)
+9. [SMTP 邮件配置](#smtp-邮件配置)
+10. [数据持久化](#数据持久化)
+11. [运维操作](#运维操作)
+12. [故障排查](#故障排查)
+13. [安全事项与待办](#安全事项与待办)
+14. [目录结构](#目录结构)
 
 ---
 
@@ -359,6 +361,134 @@ Undefined array key "mail" ... at lib/User/Backend.php ... Access.php:555
 
 ---
 
+## LDAP 定时同步
+
+> **Docker Compose 环境怎么跑定时任务？**
+> 脚本通过 `docker exec` 操作容器，所以直接在 **宿主机 crontab** 调度即可，不需要改 `docker-compose.yaml`。
+
+### 部署脚本
+
+```bash
+# 把同步脚本拷贝到服务器
+scp ldap-sync.sh root@172.16.160.231:/opt/nextcloud/
+
+# 确保可执行
+chmod +x /opt/nextcloud/ldap-sync.sh
+
+# 创建日志文件
+touch /var/log/nc-ldap.log
+```
+
+### 配置宿主机 crontab
+
+```bash
+crontab -e
+```
+
+添加：
+
+```cron
+# Nextcloud LDAP 增量同步 - 每小时
+0 * * * *   /bin/bash /opt/nextcloud/ldap-sync.sh        >> /var/log/nc-ldap.log 2>&1
+
+# Nextcloud LDAP 全量同步 - 每天凌晨 2 点（自动 disable 离职账号 + 邮件通知）
+0 2 * * *   /bin/bash /opt/nextcloud/ldap-sync.sh full   >> /var/log/nc-ldap.log 2>&1
+```
+
+### 两种模式
+
+| 模式 | 命令 | 说明 |
+|------|------|------|
+| 增量 | `ldap-sync.sh` | 触发 `cron.php` 跑一轮，拉新用户、更新属性 |
+| 全量 | `ldap-sync.sh full` | `--re-sync-all --missing-account-action=disable`，AD 里已禁用/删除的账号在 NC 端自动 disable |
+
+### 邮件通知
+
+全量同步完成后，脚本会通过内网 SMTP（`10.1.37.41:25`）自动发送报告邮件至 admin 组（`ITInfrastructureTeam@newegg.com`），内容包括：
+- 用户/组统计
+- 本次新增禁用的账号列表
+- 如有新增禁用，邮件标题会标记 ⚠️ 醒目提示
+
+收件人在脚本顶部 `MAIL_TO` 变量修改。
+
+### 日志
+
+```bash
+# 查看同步日志
+tail -100 /var/log/nc-ldap.log
+
+# 手动执行一次全量同步测试
+bash /opt/nextcloud/ldap-sync.sh full
+```
+
+---
+
+## 员工离职处理流程
+
+### 整体流程
+
+```
+员工离职
+  │
+  ├─ 自动路径（无需人工）
+  │   └─ AD 端禁用账号 → ldap-sync.sh full (凌晨 cron)
+  │       → --missing-account-action=disable
+  │       → NC 账号自动 disable（数据保留，登录拒绝）
+  │       → 📧 邮件通知 admin 组
+  │
+  └─ 手动路径（需要文件交接时）
+      └─ bash offboard-user.sh leaver@newegg.com manager@newegg.com
+          ├─ files:transfer-ownership → 文件交接
+          ├─ user:disable → 封禁登录
+          ├─ 📧 邮件通知 admin 组
+          └─ 30-90 天保留期后 → user:delete 彻底删除
+```
+
+### 使用方式
+
+```bash
+# 部署到服务器
+scp offboard-user.sh root@172.16.160.231:/opt/nextcloud/
+chmod +x /opt/nextcloud/offboard-user.sh
+
+# 只禁用（不交接文件）
+bash /opt/nextcloud/offboard-user.sh leaver@newegg.com
+
+# 禁用 + 文件交接给继任者
+bash /opt/nextcloud/offboard-user.sh leaver@newegg.com manager@newegg.com
+```
+
+### 脚本执行步骤
+
+1. **校验用户存在** — 确认 UID 有效
+2. **文件交接**（可选）— `files:transfer-ownership`，继任者的 `files/` 下会多一个 `transferred from xxx/` 目录
+3. **禁用账号** — `user:disable`，登录立即被拒
+4. **邮件通知** — 自动发送至 admin 组，包含用户信息、数据大小、交接状态、后续待办
+
+### 邮件通知内容
+
+离职处理完成后自动发送邮件（`10.1.37.41:25`），包含：
+- 离职员工 UID 和数据大小
+- 文件交接状态
+- 后续待办清单（AD 端确认、审计、数据删除时间表）
+
+### 彻底删除（保留期结束后）
+
+```bash
+OCC='docker exec -u www-data nextcloud_app php occ'
+
+# 删除用户（连同所有数据）
+$OCC user:delete leaver@newegg.com
+
+# 清除 LDAP mapping 残留
+$OCC ldap:reset-user leaver@newegg.com
+```
+
+> [!CAUTION]
+> `user:delete` 会永久删除该用户的所有文件、共享和设置，且**不可逆**。请确认已过数据保留期。
+
+---
+
 ## SMTP 邮件配置
 
 | 项 | 值 |
@@ -572,6 +702,8 @@ nextcloud/
 ├── README.md                    # 本文件
 ├── setup-ldap.sh                # LDAP 一键配置脚本
 ├── test-ldap.sh                 # LDAP 连通性 / bind / search 预检
+├── ldap-sync.sh                 # LDAP 定时同步（宿主机 cron 调用）
+├── offboard-user.sh             # 员工离职处理（disable + 文件交接 + 邮件通知）
 ├── config/                      # Nextcloud PHP 配置片段
 │   ├── config.php               # 主配置（Nextcloud 管理 + 运维维护）
 │   ├── redis.config.php
