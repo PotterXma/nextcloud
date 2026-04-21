@@ -22,10 +22,14 @@ echo "========================================"
 echo "→ 创建 ${DEPLOY_DIR}"
 mkdir -p "${DEPLOY_DIR}"
 
-# ---- 2. 拷贝脚本 ----
-echo "→ 部署脚本到 ${DEPLOY_DIR}"
-cp -v "${SCRIPT_DIR}/ldap-sync.sh"    "${DEPLOY_DIR}/ldap-sync.sh"
-cp -v "${SCRIPT_DIR}/offboard-user.sh" "${DEPLOY_DIR}/offboard-user.sh"
+# ---- 2. 拷贝脚本（如果 repo 不在 /opt/nextcloud 则拷贝）----
+if [[ "$(realpath "${SCRIPT_DIR}")" == "$(realpath "${DEPLOY_DIR}")" ]]; then
+  echo "→ 脚本已在 ${DEPLOY_DIR}，跳过拷贝"
+else
+  echo "→ 部署脚本到 ${DEPLOY_DIR}"
+  cp -v "${SCRIPT_DIR}/ldap-sync.sh"    "${DEPLOY_DIR}/ldap-sync.sh"
+  cp -v "${SCRIPT_DIR}/offboard-user.sh" "${DEPLOY_DIR}/offboard-user.sh"
+fi
 chmod +x "${DEPLOY_DIR}/ldap-sync.sh"
 chmod +x "${DEPLOY_DIR}/offboard-user.sh"
 
