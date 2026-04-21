@@ -700,8 +700,6 @@ docker exec nextcloud_app chown -R www-data:www-data /var/www/html/data
 nextcloud/
 ├── docker-compose.yaml          # 服务编排
 ├── README.md                    # 本文件
-├── setup-ldap.sh                # LDAP 一键配置脚本
-├── test-ldap.sh                 # LDAP 连通性 / bind / search 预检
 ├── ldap-sync.sh                 # LDAP 定时同步（宿主机 cron 调用）
 ├── offboard-user.sh             # 员工离职处理（disable + 文件交接 + 邮件通知）
 ├── config/                      # Nextcloud PHP 配置片段
