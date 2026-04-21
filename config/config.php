@@ -116,4 +116,9 @@ $CONFIG = array (
       'verify_peer_name' => true,
     ),
   ),
+  'ldapProviderFactory' => 'OCA\\User_LDAP\\LDAPProviderFactory',
+  'maintenance' => false,
+  'mail_from_address' => 'nextcloud',
+  'mail_domain' => 'newegg.com',
+  'mail_smtptimeout' => 30,
 );
