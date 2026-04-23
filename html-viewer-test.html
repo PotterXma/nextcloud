@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTML Viewer 渲染能力测试</title>
+<style>
+  :root {
+    --primary: #0082c9;
+    --ink: #1e1e1e;
+    --bg: #f7f9fc;
+    --card: #ffffff;
+    --border: #e0e6ed;
+    --ok: #2ecc71;
+    --warn: #f39c12;
+    --fail: #e74c3c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  header {
+    background: linear-gradient(135deg, var(--primary), #00a8e8);
+    color: white;
+    padding: 40px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    box-shadow: 0 8px 24px rgba(0,130,201,0.25);
+  }
+  header h1 { font-size: 2.2rem; margin-bottom: 10px; }
+  header p { opacity: 0.9; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .card h2 {
+    color: var(--primary);
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+    font-size: 1.3rem;
+  }
+  .status {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .status.ok { background: #d1f2e1; color: #1a6b3f; }
+  .status.warn { background: #ffe5cc; color: #8a4a00; }
+  .status.fail { background: #ffd6d6; color: #8a1a1a; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-top: 14px;
+  }
+  .pill {
+    padding: 14px;
+    background: var(--bg);
+    border-left: 4px solid var(--primary);
+    border-radius: 6px;
+    font-size: 0.92rem;
+  }
+  .pill strong { color: var(--primary); display: block; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg); font-weight: 600; color: var(--primary); }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  button {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,130,201,0.3); }
+  input, select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    margin-right: 8px;
+  }
+  .anim-box {
+    width: 80px; height: 80px;
+    background: linear-gradient(135deg, var(--primary), #00a8e8);
+    border-radius: 12px;
+    margin: 20px auto;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    50% { transform: scale(1.15) rotate(180deg); opacity: 0.85; }
+  }
+  code {
+    background: #f1f3f5;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88rem;
+    color: #d63384;
+  }
+  #js-result {
+    padding: 12px;
+    background: var(--bg);
+    border-radius: 6px;
+    margin-top: 10px;
+    font-family: monospace;
+    min-height: 40px;
+  }
+  .img-test { max-width: 200px; border-radius: 8px; margin-top: 10px; }
+  footer {
+    text-align: center;
+    padding: 30px 0 10px;
+    color: #7a8899;
+    font-size: 0.9rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>HTML Viewer 渲染能力测试</h1>
+  <p>这个页面用来测试 Nextcloud Html Viewer 应用能否正确渲染各种 HTML5 / CSS3 / JS 特性。</p>
+</header>
+
+<div class="card">
+  <h2>① 基础 HTML + CSS 排版 <span class="status ok">必须通过</span></h2>
+  <p>如果你能看到这段文字有排版、标题有颜色、卡片有圆角和阴影，说明基础 CSS 生效了。</p>
+  <div class="grid">
+    <div class="pill"><strong>响应式布局</strong>CSS Grid</div>
+    <div class="pill"><strong>渐变色</strong>linear-gradient</div>
+    <div class="pill"><strong>阴影效果</strong>box-shadow</div>
+    <div class="pill"><strong>字体</strong>系统字体栈</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>② CSS 动画 <span class="status ok">必须通过</span></h2>
+  <p>下面这个方块应该在缓慢旋转和缩放。如果它是静止的，说明 CSS 动画被禁用了（某些沙盒会禁）。</p>
+  <div class="anim-box"></div>
+</div>
+
+<div class="card">
+  <h2>③ SVG 矢量图形 <span class="status ok">必须通过</span></h2>
+  <p>下面是一个内嵌 SVG 图形（数据可视化常用）：</p>
+  <svg width="100%" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" style="stop-color:#0082c9"/>
+        <stop offset="100%" style="stop-color:#00a8e8"/>
+      </linearGradient>
+    </defs>
+    <rect x="10" y="60" width="40" height="50" fill="url(#grad1)" rx="4"/>
+    <rect x="60" y="40" width="40" height="70" fill="url(#grad1)" rx="4"/>
+    <rect x="110" y="20" width="40" height="90" fill="url(#grad1)" rx="4"/>
+    <rect x="160" y="50" width="40" height="60" fill="url(#grad1)" rx="4"/>
+    <rect x="210" y="30" width="40" height="80" fill="url(#grad1)" rx="4"/>
+    <rect x="260" y="10" width="40" height="100" fill="url(#grad1)" rx="4"/>
+    <rect x="310" y="45" width="40" height="65" fill="url(#grad1)" rx="4"/>
+    <text x="200" y="15" font-size="12" fill="#1e1e1e" text-anchor="middle">月度销售数据</text>
+  </svg>
+</div>
+
+<div class="card">
+  <h2>④ Canvas 动态绘图（需要 JS）<span class="status warn">视沙盒而定</span></h2>
+  <p>下面这个 canvas 会用 JavaScript 画一个折线图。<strong>如果下方是空白</strong>，说明沙盒禁用了内联 JS。</p>
+  <canvas id="chart" width="820" height="200" style="width:100%; max-width:820px; border:1px solid var(--border); border-radius:6px; background:white;"></canvas>
+</div>
+
+<div class="card">
+  <h2>⑤ JavaScript 执行测试 <span class="status warn">视沙盒而定</span></h2>
+  <p>点下面按钮，如果 <code>#js-result</code> 区域出现文字，说明 JS 能执行：</p>
+  <button onclick="runJsTest()">点我测试 JS</button>
+  <button onclick="runDateTest()">显示当前时间</button>
+  <div id="js-result">尚未执行</div>
+</div>
+
+<div class="card">
+  <h2>⑥ 表单元素 <span class="status ok">HTML 原生</span></h2>
+  <p>下面的表单只是视觉测试，不会真的提交：</p>
+  <p style="margin: 12px 0;">
+    <input type="text" placeholder="用户名">
+    <input type="email" placeholder="email@example.com">
+    <select>
+      <option>部门 A</option>
+      <option>部门 B</option>
+      <option>部门 C</option>
+    </select>
+    <button onclick="alert('按钮可点击')">提交</button>
+  </p>
+</div>
+
+<div class="card">
+  <h2>⑦ 表格样式 <span class="status ok">必须通过</span></h2>
+  <table>
+    <thead>
+      <tr><th>项目</th><th>状态</th><th>负责人</th><th>截止</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>LDAP 同步</td><td>完成</td><td>Jim</td><td>2026-04-20</td></tr>
+      <tr><td>SAML 对接</td><td>完成</td><td>Jim</td><td>2026-04-21</td></tr>
+      <tr><td>HTML Viewer</td><td>测试中</td><td>Jim</td><td>2026-04-22</td></tr>
+      <tr><td>备份自动化</td><td>待办</td><td>Jim</td><td>-</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>⑧ 外部图片资源测试 <span class="status fail">沙盒通常会拦</span></h2>
+  <p>下面引用了一个外部图片（placeholder.com）。<strong>如果显示"破图"标记</strong>，说明沙盒/CSP 禁止了外部资源加载，这对企业文件共享其实是安全的默认行为：</p>
+  <img class="img-test" src="https://via.placeholder.com/300x100/0082c9/ffffff?text=External+Image" alt="外部图片测试">
+</div>
+
+<div class="card">
+  <h2>⑨ 外部 CDN JavaScript 测试 <span class="status fail">沙盒通常会拦</span></h2>
+  <p>这里尝试加载 jQuery CDN，如果成功，下方会显示 <code>jQuery 版本</code>：</p>
+  <div id="jq-result">尚未加载</div>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script>
+    if (typeof jQuery !== 'undefined') {
+      document.getElementById('jq-result').innerHTML = '✅ jQuery ' + jQuery.fn.jquery + ' 已加载';
+      document.getElementById('jq-result').style.color = 'var(--ok)';
+    } else {
+      document.getElementById('jq-result').innerHTML = '❌ jQuery 未加载（沙盒/CSP 阻止了外部脚本 —— 这是正常的安全行为）';
+      document.getElementById('jq-result').style.color = 'var(--fail)';
+    }
+  </script>
+</div>
+
+<footer>
+  <p>生成于 Newegg Nextcloud 部署 · 这个文件是独立的，无外部依赖也能渲染核心内容</p>
+</footer>
+
+</div>
+
+<script>
+// 测试函数：简单 DOM 修改
+function runJsTest() {
+  const el = document.getElementById('js-result');
+  el.innerHTML = '✅ JavaScript 可执行！DOM 可修改。页面标题: "' + document.title + '"';
+  el.style.color = 'var(--ok)';
+}
+
+function runDateTest() {
+  const el = document.getElementById('js-result');
+  const now = new Date();
+  el.innerHTML = '⏰ 当前时间: ' + now.toLocaleString('zh-CN');
+  el.style.color = 'var(--primary)';
+}
+
+// Canvas 折线图
+(function() {
+  const canvas = document.getElementById('chart');
+  if (!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext('2d');
+  const data = [30, 45, 60, 50, 75, 90, 70, 85, 95, 80, 100, 88];
+  const w = canvas.width, h = canvas.height;
+  const padding = 30;
+  const chartW = w - padding * 2;
+  const chartH = h - padding * 2;
+  const max = Math.max(...data);
+
+  // 背景网格
+  ctx.strokeStyle = '#e0e6ed';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = padding + (chartH / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(padding, y);
+    ctx.lineTo(w - padding, y);
+    ctx.stroke();
+  }
+
+  // 折线
+  ctx.strokeStyle = '#0082c9';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = padding + (chartW / (data.length - 1)) * i;
+    const y = padding + chartH - (v / max) * chartH;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // 填充
+  ctx.lineTo(w - padding, h - padding);
+  ctx.lineTo(padding, h - padding);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,130,201,0.12)';
+  ctx.fill();
+
+  // 节点
+  data.forEach((v, i) => {
+    const x = padding + (chartW / (data.length - 1)) * i;
+    const y = padding + chartH - (v / max) * chartH;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#0082c9';
+    ctx.fill();
+    ctx.fillStyle = '#1e1e1e';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(v, x, y - 10);
+  });
+
+  ctx.fillStyle = '#7a8899';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Canvas 实时绘制的折线图', w / 2, 18);
+})();
+
+console.log('[HTML Viewer Test] 页面已加载完成');
+</script>
+</body>
+</html>
