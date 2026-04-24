@@ -65,7 +65,6 @@ services:
       - ./custom_apps:/var/www/html/custom_apps
       - /nextcloud-data:/var/www/html/data
       - ./apache-mime.conf:/etc/apache2/conf-available/mime-fix.conf:ro
-      - ./redis-session.ini:/usr/local/etc/php/conf.d/redis-session.ini:ro
       - ./EmptyContentSecurityPolicy.php:/var/www/html/lib/public/AppFramework/Http/EmptyContentSecurityPolicy.php:ro
     networks:
       - nextcloud_net
