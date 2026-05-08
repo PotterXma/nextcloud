@@ -322,6 +322,8 @@ docker exec nextcloud_redis redis-cli ping
 docker exec nextcloud_app chown -R www-data:www-data /var/www/html/data
 ```
 
+若启动日志出现 **`rsync` … `EmptyContentSecurityPolicy.php` … `Device or resource busy`**：说明曾把 **core 源码文件** bind-mount 到 `/var/www/html/...`。官方镜像会把程序同步到 `nextcloud_data` 卷，与挂载点冲突。**不要**在 `docker-compose` 里覆盖 `lib/` 下文件；CSP 等请用管理后台或 `config` 支持的方式配置。
+
 ---
 
 ## 安全事项与待办

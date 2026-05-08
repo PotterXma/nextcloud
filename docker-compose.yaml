@@ -64,7 +64,7 @@ services:
       - ./custom_apps:/var/www/html/custom_apps
       - /nextcloud-data:/var/www/html/data
       - ./apache-mime.conf:/etc/apache2/conf-available/mime-fix.conf:ro
-      - ./EmptyContentSecurityPolicy.php:/var/www/html/lib/public/AppFramework/Http/EmptyContentSecurityPolicy.php:ro
+      # 勿把 core 文件 bind-mount 到 /var/www/html 下：官方入口会用 rsync 同步程序到卷，挂载点会报 Device busy 导致启动失败。
     networks:
       - nextcloud_net
 
