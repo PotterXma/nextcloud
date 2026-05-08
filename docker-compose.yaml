@@ -3,7 +3,14 @@ services:
     image: mariadb:10.11
     container_name: nextcloud_db
     restart: always
-    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    command: >
+      --transaction-isolation=READ-COMMITTED
+      --log-bin=binlog
+      --binlog-format=ROW
+      --innodb-buffer-pool-size=512M
+      --innodb-log-file-size=128M
+      --innodb-flush-log-at-trx-commit=2
+      --query-cache-type=0
     env_file:
       - .env
     environment:
@@ -60,6 +67,13 @@ services:
       # PHP 性能
       PHP_MEMORY_LIMIT: 512M
       PHP_UPLOAD_LIMIT: 10G
+
+      # PHP OPcache 优化（#3）
+      PHP_OPCACHE_ENABLE: "1"
+      PHP_OPCACHE_MEMORY_CONSUMPTION: "128"
+      PHP_OPCACHE_MAX_ACCELERATED_FILES: "10000"
+      PHP_OPCACHE_REVALIDATE_FREQ: "1"
+      PHP_OPCACHE_INTERNED_STRINGS_BUFFER: "16"
 
     volumes:
       - nextcloud_data:/var/www/html
