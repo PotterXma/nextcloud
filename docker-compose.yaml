@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: a.newegg.org/newegg-docker/mariadb:10.11
+    image: mariadb:10.11
     container_name: nextcloud_db
     restart: always
     command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
@@ -17,18 +17,18 @@ services:
       - nextcloud_net
 
   redis:
-    image: a.newegg.org/newegg-docker/redis:7-alpine
+    image: redis:7-alpine
     container_name: nextcloud_redis
     restart: always
     networks:
       - nextcloud_net
 
   app:
-    image: a.newegg.org/newegg-docker/nextcloud:33
+    image: nextcloud:33
     container_name: nextcloud_app
     restart: always
     ports:
-      - "8080:80"
+      - "80:80"
     depends_on:
       - db
       - redis
@@ -43,14 +43,13 @@ services:
       NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
       NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD} # 修改为强密码
 
-      # 信任的域名（LB 对外域名）
-      NEXTCLOUD_TRUSTED_DOMAINS: nextcloud.newegg.org
+      # 对外访问域名（与浏览器地址栏一致，默认见 .env）
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
 
-      # LB 终止 HTTPS 所需配置
-      OVERWRITEPROTOCOL: https
-      OVERWRITEHOST: nextcloud.newegg.org
-      OVERWRITE_CLI_URL: https://nextcloud.newegg.org
-      TRUSTED_PROXIES: 172.16.0.0/12 # 修改为 LB 的 IP 或网段
+      # 直连 HTTP（无前一层 LB / HTTPS），容器对外映射宿主机 80→容器 80
+      OVERWRITEPROTOCOL: http
+      OVERWRITEHOST: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
+      OVERWRITE_CLI_URL: http://${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
 
       # Redis 缓存
       REDIS_HOST: redis
@@ -70,13 +69,20 @@ services:
       - nextcloud_net
 
   cron:
-    image: a.newegg.org/newegg-docker/nextcloud:33
+    image: nextcloud:33
     container_name: nextcloud_cron
     restart: always
     entrypoint: /cron.sh
     depends_on:
       - db
       - redis
+    # 与 app 保持一致，避免 occ / 分片配置依赖 getenv 时在 cron 内缺省
+    environment:
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
+      OVERWRITEPROTOCOL: http
+      OVERWRITEHOST: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
+      OVERWRITE_CLI_URL: http://${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
+      REDIS_HOST: redis
     volumes:
       - nextcloud_data:/var/www/html
       - ./config:/var/www/html/config

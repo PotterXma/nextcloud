@@ -9,7 +9,7 @@ if ($overwriteProtocol) {
   $CONFIG['overwriteprotocol'] = $overwriteProtocol;
 }
 
-$overwriteCliUrl = getenv('OVERWRITECLIURL');
+$overwriteCliUrl = getenv('OVERWRITECLIURL') ?: getenv('OVERWRITE_CLI_URL');
 if ($overwriteCliUrl) {
   $CONFIG['overwrite.cli.url'] = $overwriteCliUrl;
 }

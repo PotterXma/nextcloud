@@ -25,24 +25,20 @@ $CONFIG = array (
     'password' => '',
     'port' => 6379,
   ),
-  'overwritehost' => 'nextcloud.newegg.org',
-  'overwriteprotocol' => 'https',
-  'trusted_proxies' => 
-  array (
-    0 => '172.16.0.0/12',
-  ),
+  'overwritehost' => 'test.neweggbox.com',
+  'overwriteprotocol' => 'http',
   'upgrade.disable-web' => true,
   'passwordsalt' => 'FJj4eWAPiyWYiM1mgVbcdmFiQOkR3L',
   'secret' => 'sWE5rxhUbvpcjOPTc/hKnNMgJYVcGNPLs6zkcSMiY9V0GvvT',
   'trusted_domains' => 
   array (
     0 => 'localhost',
-    1 => 'nextcloud.newegg.org',
+    1 => 'test.neweggbox.com',
   ),
   'datadirectory' => '/var/www/html/data',
   'dbtype' => 'mysql',
   'version' => '33.0.2.2',
-  'overwrite.cli.url' => 'https://nextcloud.newegg.org',
+  'overwrite.cli.url' => 'http://test.neweggbox.com',
   'dbname' => 'nextcloud',
   'dbhost' => 'db',
   'dbtableprefix' => 'oc_',
@@ -103,22 +99,5 @@ $CONFIG = array (
     2 => '.filepart',
     3 => '.part',
   ),
-  'mail_smtpmode' => 'smtp',
-  'mail_smtphost' => '10.1.37.41',
-  'mail_smtpport' => '25',
-  'mail_sendmailmode' => 'smtp',
-  'mail_smtpstreamoptions' => 
-  array (
-    'ssl' => 
-    array (
-      'allow_self_signed' => false,
-      'verify_peer' => true,
-      'verify_peer_name' => true,
-    ),
-  ),
-  'ldapProviderFactory' => 'OCA\\User_LDAP\\LDAPProviderFactory',
   'maintenance' => false,
-  'mail_from_address' => 'nextcloud',
-  'mail_domain' => 'newegg.com',
-  'mail_smtptimeout' => 30,
 );
