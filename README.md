@@ -357,6 +357,35 @@ sudo chmod -R u+rwX ./config
 
 镜像若提示 `reverse-proxy.config.php` / `smtp.config.php` 与镜像内副本不一致：本仓库已尽量与官方 `nextcloud/docker` 的 `.config` 片段对齐；你已自定义 `config.php` 时仍可能提示，一般可忽略。
 
+### Web 显示「Internal Server Error」 / HTTP 500
+
+这是通用错误页，**真正原因在日志里**。请按顺序收集下面输出（排障时请附上）。
+
+```bash
+# 1) Nextcloud 应用日志（最重要）
+docker exec nextcloud_app tail -n 150 /var/www/html/data/nextcloud.log
+
+# 2) 容器标准输出（PHP/入口脚本异常）
+docker compose logs --tail=120 app
+
+# 3) Apache / PHP 错误日志（若存在）
+docker exec nextcloud_app sh -c 'test -f /var/log/apache2/error.log && tail -n 80 /var/log/apache2/error.log'
+
+# 4) 维护模式 / 待升级 / 基础检查
+docker exec -u www-data nextcloud_app php occ status
+docker exec -u www-data nextcloud_app php occ maintenance:mode
+```
+
+常见方向（需对照上述日志中的 **Exception / stack trace** 再处理）：`config` 或 `data` **权限**；**数据库**连不上；镜像升级后未执行 **`occ upgrade`**；某个应用报错可先 **`occ app:disable <应用名>`** 试排除；`trusted_domains` 不含当前访问主机名等。
+
+临时提高日志详细度（仅排障，用后建议关掉）：
+
+```bash
+docker exec -u www-data nextcloud_app php occ log:manage --level debug
+# 复现一次 500 后再看 nextcloud.log；排障结束可改回 warning
+docker exec -u www-data nextcloud_app php occ log:manage --level warning
+```
+
 ---
 
 ## 安全事项与待办
