@@ -386,6 +386,55 @@ docker exec -u www-data nextcloud_app php occ log:manage --level debug
 docker exec -u www-data nextcloud_app php occ log:manage --level warning
 ```
 
+### `Table 'nextcloud.oc_appconfig' doesn't exist`（或大量 `oc_*` 表缺失）
+
+说明 **`config.php` 里已是「已安装」**（`installed => true`），但 **MariaDB 里 Nextcloud 的表根本没建起来**（常见：把仓库里的 `config.php` 拷到新机器、或早年安装写入 config 失败但库是空的）。
+
+先确认库是否空的：
+
+```bash
+docker exec nextcloud_db mysql -u nextcloud -p'<DB密码>' -e "USE nextcloud; SHOW TABLES LIKE 'oc_%';"
+```
+
+若几乎没有表，需要 **重新跑安装**（下面会清空 `nextcloud` 库，**仅在没有要保留的数据时**执行）。
+
+**做法 A — 让官方入口重新安装（推荐）**
+
+1. 停服务：`docker compose down`
+2. 备份：`cp config/config.php config/config.php.bak.$(date +%F)`
+3. **暂时移走主配置**（保留同目录下 `reverse-proxy.config.php`、`redis.config.php` 等分片）：  
+   `mv config/config.php config/config.php.bak`
+4. 重建空库（root 密码见 `.env` 的 `MYSQL_ROOT_PASSWORD`）：
+
+   ```bash
+   docker compose up -d db
+   docker exec nextcloud_db mysql -u root -p'<ROOT_PASSWORD>' -e \
+     "DROP DATABASE IF EXISTS nextcloud; CREATE DATABASE nextcloud CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; \
+      GRANT ALL ON nextcloud.* TO 'nextcloud'@'%'; FLUSH PRIVILEGES;"
+   ```
+
+5. `docker compose up -d`，看日志直至安装结束：`docker compose logs -f app`  
+   确保 **`docker-compose.yaml` 里已为 `app` 配置** `MYSQL_*`、`NEXTCLOUD_ADMIN_*`（或 `.env` + `env_file`，与仓库示例一致）。
+6. 浏览器打开站点完成向导；或检查是否生成新的 `config/config.php`。
+7. 若旧备份里有自定义 `trusted_domains` / 域名，可从 `config.php.bak` **合并**回新 `config.php` 后再 `docker compose restart app`。
+
+**做法 B — 不删 `config.php`，仅清库后执行命令行安装**
+
+仅当 `occ maintenance:install` 接受当前环境时使用（官方更常见是 **空库 + 无 config.php** 或全新库；若报错「已安装」，改用做法 A）。
+
+```bash
+# 清库后
+docker exec -u www-data nextcloud_app php occ maintenance:install \
+  --database=mysql --database-name=nextcloud \
+  --database-user=nextcloud --database-pass='<与.env一致>' \
+  --database-host=db \
+  --admin-user=<与.env一致> --admin-pass='<与.env一致>'
+```
+
+**关于 `nextcloud.log` 不存在**：数据目录为 **`/nextcloud-data`（宿主机） ↔ 容器 `/var/www/html/data`** 时，若安装从未成功，**可能还没有日志文件**。可在宿主机检查：  
+`sudo ls -la /nextcloud-data/`。装好后再看：  
+`docker exec nextcloud_app tail -n 100 /var/www/html/data/nextcloud.log` 或宿主机 `sudo tail /nextcloud-data/nextcloud.log`。
+
 ---
 
 ## 安全事项与待办
