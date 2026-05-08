@@ -435,6 +435,28 @@ docker exec -u www-data nextcloud_app php occ maintenance:install \
 `sudo ls -la /nextcloud-data/`。装好后再看：  
 `docker exec nextcloud_app tail -n 100 /var/www/html/data/nextcloud.log` 或宿主机 `sudo tail /nextcloud-data/nextcloud.log`。
 
+### `Configuration was not read or initialized correctly, not overwriting .../config.php`
+
+官方镜像在合并/写入主配置前会 **先加载现有 `config.php`**；若加载失败（语法错误、文件 0 字节、权限不可读、`config_is_read_only` 与写入流程冲突等），会 **拒绝覆盖**，并打出该提示。
+
+**排查：**
+
+```bash
+# 语法必须正确
+docker exec nextcloud_app php -l /var/www/html/config/config.php
+
+# 非空且容器内可读
+docker exec nextcloud_app wc -c /var/www/html/config/config.php
+docker exec nextcloud_app head -n 5 /var/www/html/config/config.php
+```
+
+**处理：**
+
+1. 若 `php -l` 报错：在宿主机修正 `config/config.php`（常见为手改时少了逗号、引号，或 Windows 另存的编码/BOM）。
+2. 宿主机权限：`sudo chown 33:33 config/config.php` 与 `chmod u+rw config/config.php`（同目录规则见上文）。
+3. 若主配置已坏且需重装：先 **备份** 再 **删掉** `config/config.php`（保留 `reverse-proxy.config.php`、`redis.config.php` 等），空库后重新启动安装（见上一节「做法 A」）。
+4. **`.env` 必须与 `docker-compose.yaml` 同目录**，且 `docker compose` 能读到（本仓库已在 **`app` / `db` 上增加 `env_file: .env`**，拉代码后请 `git pull` 再 `docker compose up -d`）。
+
 ---
 
 ## 安全事项与待办

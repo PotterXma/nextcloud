@@ -4,6 +4,8 @@ services:
     container_name: nextcloud_db
     restart: always
     command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    env_file:
+      - .env
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD} # 修改为强密码
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -30,6 +32,8 @@ services:
     depends_on:
       - db
       - redis
+    env_file:
+      - .env
     environment:
       # 数据库
       MYSQL_HOST: db
