@@ -45,12 +45,12 @@ services:
       NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
       NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD} # 修改为强密码
 
-      # 对外访问域名（与浏览器地址栏一致，默认见 .env）
-      NEXTCLOUD_TRUSTED_DOMAINS: http://test.neweggbox.com
+      # 对外访问域名（只填域名，不加 http:// 前缀）
+      NEXTCLOUD_TRUSTED_DOMAINS: test.neweggbox.com
 
       # 直连 HTTP（无前一层 LB / HTTPS），容器对外映射宿主机 80→容器 80
       OVERWRITEPROTOCOL: http
-      OVERWRITEHOST: http://test.neweggbox.com
+      OVERWRITEHOST: test.neweggbox.com
       # 官方镜像 reverse-proxy.config.php 读取的环境变量名（无下划线）
       OVERWRITECLIURL: http://test.neweggbox.com
 
