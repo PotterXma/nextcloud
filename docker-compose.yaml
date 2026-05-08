@@ -49,7 +49,8 @@ services:
       # 直连 HTTP（无前一层 LB / HTTPS），容器对外映射宿主机 80→容器 80
       OVERWRITEPROTOCOL: http
       OVERWRITEHOST: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
-      OVERWRITE_CLI_URL: http://${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
+      # 官方镜像 reverse-proxy.config.php 读取的环境变量名（无下划线）
+      OVERWRITECLIURL: http://${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
 
       # Redis 缓存
       REDIS_HOST: redis
@@ -81,7 +82,8 @@ services:
       NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
       OVERWRITEPROTOCOL: http
       OVERWRITEHOST: ${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
-      OVERWRITE_CLI_URL: http://${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
+      # 官方镜像 reverse-proxy.config.php 读取的环境变量名（无下划线）
+      OVERWRITECLIURL: http://${NEXTCLOUD_PUBLIC_DOMAIN:-test.neweggbox.com}
       REDIS_HOST: redis
     volumes:
       - nextcloud_data:/var/www/html

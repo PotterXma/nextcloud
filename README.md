@@ -114,7 +114,7 @@ docker compose logs -f app
 NEXTCLOUD_TRUSTED_DOMAINS: test.neweggbox.com
 OVERWRITEPROTOCOL: http
 OVERWRITEHOST: test.neweggbox.com
-OVERWRITE_CLI_URL: http://test.neweggbox.com
+OVERWRITECLIURL: http://test.neweggbox.com
 PHP_MEMORY_LIMIT: 512M
 PHP_UPLOAD_LIMIT: 10G
 ```
@@ -323,6 +323,25 @@ docker exec nextcloud_app chown -R www-data:www-data /var/www/html/data
 ```
 
 若启动日志出现 **`rsync` … `EmptyContentSecurityPolicy.php` … `Device or resource busy`**：说明曾把 **core 源码文件** bind-mount 到 `/var/www/html/...`。官方镜像会把程序同步到 `nextcloud_data` 卷，与挂载点冲突。**不要**在 `docker-compose` 里覆盖 `lib/` 下文件；CSP 等请用管理后台或 `config` 支持的方式配置。
+
+### `Cannot write into "config" directory!`
+
+`./config` 挂载到容器内 `/var/www/html/config` 时，**www-data（uid 33）必须可写该目录**，否则首次安装会报错。
+
+**Linux 宿主机：**
+
+```bash
+sudo chown -R 33:33 ./config
+sudo chmod -R u+rwX ./config
+```
+
+改完后重启：`docker compose restart app`（或 `up -d`）。
+
+**Docker Desktop（Windows / Mac）：** 尽量把工程放在 **WSL2 的 Linux 路径**（如 `\\wsl$\Ubuntu\home\...`）再运行 Compose，避免在 `C:\` 的目录挂载上常出现的权限/只读问题。若仍失败，可在 WSL 里进入项目目录执行上面的 `chown`/`chmod`（仅当该路径在 WSL 文件系统内）。
+
+**确认是否已装上：** `docker exec -u www-data nextcloud_app php occ status`
+
+镜像若提示 `reverse-proxy.config.php` / `smtp.config.php` 与镜像内副本不一致：本仓库已尽量与官方 `nextcloud/docker` 的 `.config` 片段对齐；你已自定义 `config.php` 时仍可能提示，一般可忽略。
 
 ---
 
