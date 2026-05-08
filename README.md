@@ -341,6 +341,20 @@ sudo chmod -R u+rwX ./config
 
 **确认是否已装上：** `docker exec -u www-data nextcloud_app php occ status`
 
+### `FATAL: Could not open the config file .../reverse-proxy.config.php`
+
+说明当前挂载的 **`config/` 里缺少该文件**，或 **Web 用户无法读取**（权限/只读卷）。
+
+1. 宿主机检查：`ls -la config/reverse-proxy.config.php`（须存在且可读）。
+2. 若缺少：在项目根执行 `git pull`，或从镜像拷出后再赋权：
+   ```bash
+   docker compose run --rm --no-deps --entrypoint cat app \
+     /usr/src/nextcloud/config/reverse-proxy.config.php > config/reverse-proxy.config.php
+   sudo chown 33:33 config/reverse-proxy.config.php
+   chmod u+r config/reverse-proxy.config.php
+   ```
+3. 确认整条 **`./config` 目录**对 uid **33** 可读（见上一节 `chown`）。
+
 镜像若提示 `reverse-proxy.config.php` / `smtp.config.php` 与镜像内副本不一致：本仓库已尽量与官方 `nextcloud/docker` 的 `.config` 片段对齐；你已自定义 `config.php` 时仍可能提示，一般可忽略。
 
 ---
