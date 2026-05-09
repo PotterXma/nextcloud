@@ -7,10 +7,13 @@ services:
       --transaction-isolation=READ-COMMITTED
       --log-bin=binlog
       --binlog-format=ROW
+      --expire-logs-days=3
       --innodb-buffer-pool-size=512M
       --innodb-log-file-size=128M
       --innodb-flush-log-at-trx-commit=2
+      --innodb-flush-method=O_DIRECT
       --query-cache-type=0
+      --max-connections=100
     env_file:
       - .env
     environment:
@@ -27,6 +30,8 @@ services:
     image: redis:7-alpine
     container_name: nextcloud_redis
     restart: always
+    # 限制 Redis 最大内存为 256MB，LRU 淘汰策略，避免无限增长吃掉系统内存
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
       - nextcloud_net
 
@@ -68,16 +73,56 @@ services:
       PHP_MEMORY_LIMIT: 512M
       PHP_UPLOAD_LIMIT: 10G
 
-      # PHP OPcache 优化（#3）
+      # PHP OPcache 优化
+      # revalidate_freq=60：生产环境每 60 秒才做一次文件 stat() 检查，
+      # 避免每个请求都触发大量 inotify/stat 系统调用拖慢 CPU。
+      # 若手动更新了应用，执行 docker exec nextcloud_app kill -USR2 1 或重启容器使缓存失效。
       PHP_OPCACHE_ENABLE: "1"
       PHP_OPCACHE_MEMORY_CONSUMPTION: "128"
       PHP_OPCACHE_MAX_ACCELERATED_FILES: "10000"
-      PHP_OPCACHE_REVALIDATE_FREQ: "1"
+      PHP_OPCACHE_REVALIDATE_FREQ: "60"
       PHP_OPCACHE_INTERNED_STRINGS_BUFFER: "16"
+      PHP_OPCACHE_SAVE_COMMENTS: "1"
 
     volumes:
       - nextcloud_data:/var/www/html
-      # 勿把 core 文件 bind-mount 到 /var/www/html 下：官方入口会用 rsync 同步程序到卷，挂载点会报 Device busy 导致启动失败。
+      # 预览生成限制（只读）
+      - ./config/preview.config.php:/var/www/html/config/preview.config.php:ro
+      # 后台任务窗口 + 数据保留策略（只读）
+      - ./config/performance.config.php:/var/www/html/config/performance.config.php:ro
+      # Apache MPM Prefork 并发限制 — 官方镜像 entrypoint 不读 APACHE_MAX_REQUEST_WORKERS 环境变量，
+      # 必须直接覆盖此 conf 文件才能生效。MaxRequestWorkers=8 防止并发请求把 4 vCPU 全打满。
+      - ./config/apache-mpm-prefork.conf:/etc/apache2/mods-available/mpm_prefork.conf:ro
+    networks:
+      - nextcloud_net
+
+  # ── Cron 容器（关键优化）──────────────────────────────────────────────────
+  # 使用独立容器每 5 分钟执行一次 cron.php，把所有后台任务（文件索引、
+  # 活动扫描、预览生成队列等）从 HTTP 请求路径中剥离，消除"用几下 CPU 就爆"。
+  # 首次部署后还需执行：
+  #   docker exec -u www-data nextcloud_app php occ background:cron
+  # 告知 Nextcloud 切换到 cron 模式（而非默认的 AJAX 模式）。
+  cron:
+    image: nextcloud:33
+    container_name: nextcloud_cron
+    restart: always
+    entrypoint: /cron.sh
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    environment:
+      MYSQL_HOST: db
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      PHP_MEMORY_LIMIT: 512M
+    volumes:
+      - nextcloud_data:/var/www/html
+      - ./config/preview.config.php:/var/www/html/config/preview.config.php:ro
+      - ./config/performance.config.php:/var/www/html/config/performance.config.php:ro
     networks:
       - nextcloud_net
 
