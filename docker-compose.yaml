@@ -3,6 +3,8 @@ services:
     image: mariadb:10.11
     container_name: nextcloud_db
     restart: always
+    # 勿在 command 折叠块内写 # 注释：会原样传给 mariadbd 导致启动失败
+    # skip-name-resolve：连接阶段不做客户端主机名反向解析
     command: >
       --transaction-isolation=READ-COMMITTED
       --log-bin=binlog
@@ -14,7 +16,6 @@ services:
       --innodb-flush-method=O_DIRECT
       --query-cache-type=0
       --max-connections=100
-      # 连接阶段不做客户端主机名反向解析，略减连接延迟与偶发 DNS 超时
       --skip-name-resolve
     env_file:
       - .env
