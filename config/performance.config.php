@@ -47,10 +47,9 @@ $CONFIG = [
     'skeletondirectory' => '',
 
     // ── 分片上传并行度（上传时 CPU / 内存峰值的主要来源之一）────────────────
-    // 客户端大文件分片上传时，默认最多 5 路并行，每个分片各占一个 PHP worker，
-    // 与预览 / 扫描叠加时容易打满 CPU 与内存。降到 2 可明显压低峰值，单文件略慢。
-    // 官方说明：files.chunked_upload.max_parallel_count，默认 5。
-    'files.chunked_upload.max_parallel_count' => 2,
+    // 单用户上传大图时浏览器仍会并行多个分片请求；设为 1 与「预览单线程」思路一致，
+    // 进一步压低瞬时 CPU（单文件上传总时长可能略增）。
+    'files.chunked_upload.max_parallel_count' => 1,
 
     // ── Activity 应用：挂载点查询缓存 ───────────────────────────────────────
     // 上传/移动文件时会写活动流；开启后减少对挂载点的重复解析，降低 DB 与 CPU。
