@@ -14,6 +14,8 @@ services:
       --innodb-flush-method=O_DIRECT
       --query-cache-type=0
       --max-connections=100
+      # 连接阶段不做客户端主机名反向解析，略减连接延迟与偶发 DNS 超时
+      --skip-name-resolve
     env_file:
       - .env
     environment:
@@ -30,8 +32,13 @@ services:
     image: redis:7-alpine
     container_name: nextcloud_redis
     restart: always
-    # 限制 Redis 最大内存为 256MB，LRU 淘汰策略，避免无限增长吃掉系统内存
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # 纯缓存用途：关 RDB/AOF 持久化，减轻磁盘 I/O 与 fork 时的 CPU 尖峰
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
     networks:
       - nextcloud_net
 
@@ -90,8 +97,12 @@ services:
       # 后台任务窗口 + 数据保留策略（只读）
       - ./config/performance.config.php:/var/www/html/config/performance.config.php:ro
       # Apache MPM Prefork 并发限制 — 官方镜像 entrypoint 不读 APACHE_MAX_REQUEST_WORKERS 环境变量，
-      # 必须直接覆盖此 conf 文件才能生效。MaxRequestWorkers=8 防止并发请求把 4 vCPU 全打满。
+      # 必须直接覆盖此 conf 文件才能生效。
       - ./config/apache-mpm-prefork.conf:/etc/apache2/mods-available/mpm_prefork.conf:ro
+      # 本地 APCu：与 Redis 搭配，减少元数据/路径缓存命中数据库（官方镜像已带 APCu）
+      - ./config/apcu.config.php:/var/www/html/config/apcu.config.php:ro
+      # PHP：会话进 Redis + realpath 缓存（镜像 PHP_INI_DIR 见官方 Dockerfile）
+      - ./config/php-redis-session.ini:/usr/local/etc/php/conf.d/zz-redis-session.ini:ro
     networks:
       - nextcloud_net
 
@@ -122,6 +133,7 @@ services:
       - nextcloud_data:/var/www/html
       - ./config/preview.config.php:/var/www/html/config/preview.config.php:ro
       - ./config/performance.config.php:/var/www/html/config/performance.config.php:ro
+      - ./config/apcu.config.php:/var/www/html/config/apcu.config.php:ro
     networks:
       - nextcloud_net
 

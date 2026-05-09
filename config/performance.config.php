@@ -46,4 +46,22 @@ $CONFIG = [
     // 内网部署不需要，设为空字符串禁用，加快新用户初始化速度。
     'skeletondirectory' => '',
 
+    // ── 分片上传并行度（上传时 CPU / 内存峰值的主要来源之一）────────────────
+    // 客户端大文件分片上传时，默认最多 5 路并行，每个分片各占一个 PHP worker，
+    // 与预览 / 扫描叠加时容易打满 CPU 与内存。降到 2 可明显压低峰值，单文件略慢。
+    // 官方说明：files.chunked_upload.max_parallel_count，默认 5。
+    'files.chunked_upload.max_parallel_count' => 2,
+
+    // ── Activity 应用：挂载点查询缓存 ───────────────────────────────────────
+    // 上传/移动文件时会写活动流；开启后减少对挂载点的重复解析，降低 DB 与 CPU。
+    'activity_use_cached_mountpoints' => true,
+
+    // ── 本地文件变更检测（显式写入，避免被误改成 1）──────────────────────────
+    // 0：不对外部直接改盘做逐请求检测，上传密集时减少 stat 开销（默认即为 0）。
+    'filesystem_check_changes' => 0,
+
+    // ── 内网/自建：减少后台对 apps.nextcloud.com 的更新探测与说明站外链 ───────
+    'updatechecker' => false,
+    'knowledgebaseenabled' => false,
+
 ];

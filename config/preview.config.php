@@ -27,10 +27,15 @@ $CONFIG = [
     'preview_max_scale_factor'  => 1,
 
     // ── 并发限制 ────────────────────────────────────────────────────────────
-    // 同时最多生成 2 个新预览（防止批量上传时把所有 CPU 打满）
-    'preview_concurrency_new'   => 2,
-    // 已有缓存的预览最多 4 个并发读取
-    'preview_concurrency_all'   => 4,
+    // 新预览生成最耗 CPU/内存；上传瞬间队列积压时，1 路生成最稳（略慢出缩略图）。
+    'preview_concurrency_new'   => 1,
+    'preview_concurrency_all'   => 2,
+
+    // ── 大图预览阈值（减轻 ImageMagick / GD 峰值内存）────────────────────────
+    // 超过此大小的图片不再尝试生成位图预览（默认 50MB）；略降可减少解码大图的尖峰。
+    'preview_max_filesize_image' => 32,
+    // 为单张预览预留的估算内存上限（MB），默认 256；降低可限制极端分辨率下的占用。
+    'preview_max_memory'        => 128,
 
     // ── 只启用轻量级 Provider ───────────────────────────────────────────────
     // 移除了 OC\Preview\Movie（需要 FFmpeg，极其耗 CPU）
